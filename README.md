@@ -1,21 +1,27 @@
 # Multi Agent AI Research System
 
 Overview
-- A small research/workbench for experimenting with multi-agent AI patterns and pipelines.
+- ResearchMind: a Streamlit + CLI multi-agent research pipeline (Search → Reader → Writer → Critic).
+- LLM backend: Groq (`ChatGroq`, model `openai/gpt-oss-120b`).
+- Web search: Tavily. Page scraping: requests + BeautifulSoup.
 
 Repository structure
-- `agents.py` - agent implementations and orchestration helpers.
-- `app.py` - application entrypoint / demo runner.
-- `pipeline.py` - pipeline definitions that wire agents together.
-- `tools.py` - utility functions used across the project.
-- `requirements.txt` - Python dependencies for the project.
+- `agents.py` — agent factories, reader prompt, writer/critic chains.
+- `app.py` — Streamlit UI (`streamlit run app.py`).
+- `pipeline.py` — CLI pipeline (`python pipeline.py`).
+- `tools.py` — `web_search` + `scrape_url` LangChain tools.
+- `runtime.py` — env validation, logging, retry/backoff helpers.
+- `tests/` — pytest suite (mocked external APIs).
+- `requirements.txt` — pinned dependencies (UTF-8).
+- `pytest.ini` — pytest discovery + `live` marker.
 
 Prerequisites
 - Python 3.10 or later (3.12 recommended; `.venv` is tested on 3.12).
 - Git to clone the repo.
+- API keys for Groq and Tavily.
 
 Quickstart
-1. Create and activate a virtual environment (recommended):
+1. Create and activate a virtual environment:
 
 ```bash
 python -m venv .venv
@@ -32,25 +38,29 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-3. Provide environment variables (if any):
-- Create a `.env` file in the project root for any secrets or configuration used by the code.
+3. Provide environment variables in `.env` (project root):
 
-4. Run the app or experiments:
+```
+GROQ_API_KEY=...
+TAVILY_API_KEY=...
+```
 
-If the project uses Streamlit interfaces:
+Missing keys are validated at startup (CLI) and on Run (UI) with a clear error.
+
+4. Run:
 
 ```bash
+# Streamlit UI (recommended)
 streamlit run app.py
+
+# CLI pipeline (interactive topic prompt)
+python pipeline.py
 ```
 
-Or run directly with Python (some scripts are CLI/demo oriented):
-
-```bash
-python app.py
-```
+Note: the CLI reconfigures stdout to UTF-8 so Windows consoles do not crash on Unicode research text.
 
 Dependencies
-- See `requirements.txt` for exact pins matching the working environment:
+- See `requirements.txt` for exact pins:
 
 ```
 streamlit==1.57.0
@@ -69,9 +79,15 @@ Required `.env` keys:
 - `GROQ_API_KEY` — LLM backend (ChatGroq)
 - `TAVILY_API_KEY` — web search tool
 
+Reliability features
+- Transient API errors (timeouts, connection resets, rate limits) are retried with exponential backoff in tools and pipeline LLM steps.
+- Failed/empty web search skips the reader step instead of crashing.
+- Streamlit shows per-step WAITING / RUNNING / DONE / FAILED cards and surfaces errors in an Issues panel.
+- Optional file/console logging via the `researchmind` logger (`runtime.setup_logging`).
+
 Development notes
-- Keep secrets and API keys out of the repo; use `.env` or your environment.
-- Use the provided `requirements.txt` to reproduce the environment. Freeze updates with `pip freeze > requirements.txt` when you intend to record changes.
+- Keep secrets out of the repo; use `.env` or your environment.
+- `requirements.txt` matches the working venv pins; re-freeze with `pip freeze > requirements.txt` when you intentionally change deps.
 
 Testing & linting
 - Unit/integration tests live in `tests/` (mocked Tavily/Groq — no network needed):

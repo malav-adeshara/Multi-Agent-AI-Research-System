@@ -1,7 +1,10 @@
 from tests.fakes import FakeAgent, FakeChain
 from unittest.mock import patch
 
+import pytest
+
 import pipeline
+from runtime import MissingEnvironmentError
 
 
 SEARCH_OK = (
@@ -22,7 +25,9 @@ def _run_with_mocks(search_content, reader_content, report, feedback):
     with patch.object(pipeline, "build_search_agent", return_value=search_agent), \
          patch.object(pipeline, "build_reader_agent", return_value=reader_agent), \
          patch.object(pipeline, "writer_chain", writer), \
-         patch.object(pipeline, "critic_chain", critic):
+         patch.object(pipeline, "critic_chain", critic), \
+         patch.object(pipeline, "require_env_keys"), \
+         patch.object(pipeline, "_llm_step", side_effect=lambda label, fn: fn()):
         state = pipeline.run_research_pipeline("test topic")
 
     return state, search_agent, reader_agent, writer, critic
@@ -106,3 +111,13 @@ def test_critic_receives_report_payload():
 
 def test_ensure_utf8_stdout_does_not_raise():
     pipeline._ensure_utf8_stdout()
+
+
+def test_pipeline_requires_env_keys(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+
+    with patch.object(pipeline, "build_search_agent"), \
+         patch.object(pipeline, "_llm_step", side_effect=lambda label, fn: fn()):
+        with pytest.raises(MissingEnvironmentError):
+            pipeline.run_research_pipeline("topic")

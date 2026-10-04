@@ -1,6 +1,9 @@
 import streamlit as st
 import time
 from agents import build_reader_agent, build_search_agent, writer_chain, critic_chain, build_reader_prompt
+from runtime import MissingEnvironmentError, missing_env_keys, require_env_keys, setup_logging
+
+setup_logging()
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -430,12 +433,25 @@ if run_btn:
     if not topic.strip():
         st.warning("Please enter a research topic first.")
     else:
-        st.session_state.results = {}
-        st.session_state.errors = {}
-        st.session_state.running = True
-        st.session_state.done = False
-        st.session_state.current_step = "search"
-        st.rerun()
+        missing = missing_env_keys()
+        if missing:
+            st.error(
+                "Missing required API key(s): **"
+                + ", ".join(missing)
+                + "**. Set them in `.env` or your environment, then retry."
+            )
+        else:
+            try:
+                require_env_keys()
+            except MissingEnvironmentError as e:
+                st.error(str(e))
+            else:
+                st.session_state.results = {}
+                st.session_state.errors = {}
+                st.session_state.running = True
+                st.session_state.done = False
+                st.session_state.current_step = "search"
+                st.rerun()
 
 if st.session_state.running and not st.session_state.done:
     step = st.session_state.current_step
@@ -452,6 +468,7 @@ if st.session_state.running and not st.session_state.done:
     if step == "search":
         with st.spinner("🔍  Search Agent is working…"):
             try:
+                require_env_keys()
                 search_agent = build_search_agent()
                 sr = search_agent.invoke({
                     "messages": [("user", f"Find recent, reliable and detailed information about: {topic_val}")]
@@ -459,6 +476,8 @@ if st.session_state.running and not st.session_state.done:
                 results["search"] = sr["messages"][-1].content or ""
                 if results["search"].startswith("WEB_SEARCH_FAILED") or results["search"].startswith("WEB_SEARCH_EMPTY"):
                     errors["search"] = results["search"]
+            except MissingEnvironmentError as e:
+                _record_error("search", e)
             except Exception as e:
                 _record_error("search", e)
         st.session_state.results = dict(results)
