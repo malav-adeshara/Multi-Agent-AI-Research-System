@@ -154,6 +154,10 @@ html, body, [class*="css"] {
     border-color: rgba(80,200,120,0.3);
     background: rgba(80,200,120,0.03);
 }
+.step-card.failed {
+    border-color: rgba(255,107,107,0.35);
+    background: rgba(255,80,80,0.04);
+}
 .step-card::before {
     content: '';
     position: absolute;
@@ -165,6 +169,7 @@ html, body, [class*="css"] {
 }
 .step-card.active::before { background: #ff8c32; }
 .step-card.done::before   { background: #50c878; }
+.step-card.failed::before { background: #ff6b6b; }
 
 .step-header {
     display: flex;
@@ -195,6 +200,7 @@ html, body, [class*="css"] {
 .status-waiting  { color: #555; }
 .status-running  { color: #ff8c32; }
 .status-done     { color: #50c878; }
+.status-failed   { color: #ff6b6b; }
 
 /* ── Result panels ── */
 .result-panel {
@@ -296,9 +302,10 @@ def step_card(num: str, title: str, state: str, desc: str = ""):
         "waiting": ("WAITING", "status-waiting"),
         "running": ("● RUNNING", "status-running"),
         "done":    ("✓ DONE",   "status-done"),
+        "failed":  ("✕ FAILED", "status-failed"),
     }
     label, cls = status_map.get(state, ("", ""))
-    card_cls = {"running": "active", "done": "done"}.get(state, "")
+    card_cls = {"running": "active", "done": "done", "failed": "failed"}.get(state, "")
     st.markdown(f"""
     <div class="step-card {card_cls}">
         <div class="step-header">
@@ -312,9 +319,18 @@ def step_card(num: str, title: str, state: str, desc: str = ""):
 
 
 # ── Session state init ────────────────────────────────────────────────────────
-for key in ("results", "running", "done"):
+PIPELINE_STEPS = ("search", "reader", "writer", "critic")
+
+_session_defaults = {
+    "results": {},
+    "running": False,
+    "done": False,
+    "errors": {},
+    "current_step": None,
+}
+for key, default in _session_defaults.items():
     if key not in st.session_state:
-        st.session_state[key] = {} if key == "results" else False
+        st.session_state[key] = default
 
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
@@ -369,23 +385,18 @@ with col_input:
 with col_pipeline:
     st.markdown('<div class="section-heading">Pipeline</div>', unsafe_allow_html=True)
 
-    r = st.session_state.results
-    done = st.session_state.done
+    r = st.session_state.results or {}
+    errors = st.session_state.errors or {}
+    running = st.session_state.running
+    current = st.session_state.current_step
 
     def s(step):
-        if not r:
-            return "waiting"
-        steps = ["search", "reader", "writer", "critic"]
-        idx = steps.index(step)
-        completed = list(r.keys())
-        # figure out which steps are done
+        if step in errors:
+            return "failed"
         if step in r:
             return "done"
-        # which step is running now (first not in r)
-        if st.session_state.running:
-            for i, k in enumerate(steps):
-                if k not in r:
-                    return "running" if k == step else "waiting"
+        if running and current == step:
+            return "running"
         return "waiting"
 
     step_card("01", "Search Agent",  s("search"), "Gathers recent web information")
@@ -394,71 +405,145 @@ with col_pipeline:
     step_card("04", "Critic Chain",  s("critic"), "Reviews & scores the report")
 
 
-# ── Run pipeline ──────────────────────────────────────────────────────────────
+# ── Run pipeline (one step per rerun so cards update live) ────────────────────
+def _finish_run():
+    st.session_state.running = False
+    st.session_state.done = True
+    st.session_state.current_step = None
+
+
+def _advance_from(step: str):
+    steps = list(PIPELINE_STEPS)
+    if step not in steps:
+        _finish_run()
+        st.rerun()
+        return
+    idx = steps.index(step)
+    if idx + 1 < len(steps):
+        st.session_state.current_step = steps[idx + 1]
+    else:
+        _finish_run()
+    st.rerun()
+
+
 if run_btn:
     if not topic.strip():
         st.warning("Please enter a research topic first.")
     else:
         st.session_state.results = {}
+        st.session_state.errors = {}
         st.session_state.running = True
         st.session_state.done = False
+        st.session_state.current_step = "search"
         st.rerun()
 
 if st.session_state.running and not st.session_state.done:
-    results = {}
+    step = st.session_state.current_step
     topic_val = st.session_state.topic_input
+    results = dict(st.session_state.results or {})
+    errors = dict(st.session_state.errors or {})
+
+    def _record_error(step_name: str, exc: Exception):
+        msg = f"{type(exc).__name__}: {exc}"
+        errors[step_name] = msg
+        results[step_name] = f"ERROR: {msg}"
 
     # ── Step 1: Search ──
-    with st.spinner("🔍  Search Agent is working…"):
-        search_agent = build_search_agent()
-        sr = search_agent.invoke({
-            "messages": [("user", f"Find recent, reliable and detailed information about: {topic_val}")]
-        })
-        results["search"] = sr["messages"][-1].content or ""
+    if step == "search":
+        with st.spinner("🔍  Search Agent is working…"):
+            try:
+                search_agent = build_search_agent()
+                sr = search_agent.invoke({
+                    "messages": [("user", f"Find recent, reliable and detailed information about: {topic_val}")]
+                })
+                results["search"] = sr["messages"][-1].content or ""
+                if results["search"].startswith("WEB_SEARCH_FAILED") or results["search"].startswith("WEB_SEARCH_EMPTY"):
+                    errors["search"] = results["search"]
+            except Exception as e:
+                _record_error("search", e)
         st.session_state.results = dict(results)
+        st.session_state.errors = dict(errors)
+        _advance_from("search")
 
     # ── Step 2: Reader ──
-    search_results = results["search"]
-    if not search_results.strip() or search_results.startswith("WEB_SEARCH_FAILED") or search_results.startswith("WEB_SEARCH_EMPTY"):
-        results["reader"] = (
-            "SKIPPED_READER: no usable search results, so scraping was skipped. "
-            f"Search output was: {search_results[:500]}"
-        )
-    else:
-        with st.spinner("📄  Reader Agent is scraping top resources…"):
-            reader_agent = build_reader_agent()
-            rr = reader_agent.invoke({
-                "messages": [("user", build_reader_prompt(topic_val, search_results))]
-            })
-            results["reader"] = rr["messages"][-1].content or ""
-    st.session_state.results = dict(results)
+    elif step == "reader":
+        search_results = results.get("search") or ""
+        if (
+            not search_results.strip()
+            or search_results.startswith("WEB_SEARCH_FAILED")
+            or search_results.startswith("WEB_SEARCH_EMPTY")
+            or search_results.startswith("ERROR:")
+            or "search" in errors
+        ):
+            results["reader"] = (
+                "SKIPPED_READER: no usable search results, so scraping was skipped. "
+                f"Search output was: {search_results[:500]}"
+            )
+        else:
+            with st.spinner("📄  Reader Agent is scraping top resources…"):
+                try:
+                    reader_agent = build_reader_agent()
+                    rr = reader_agent.invoke({
+                        "messages": [("user", build_reader_prompt(topic_val, search_results))]
+                    })
+                    results["reader"] = rr["messages"][-1].content or ""
+                except Exception as e:
+                    _record_error("reader", e)
+        st.session_state.results = dict(results)
+        st.session_state.errors = dict(errors)
+        _advance_from("reader")
 
     # ── Step 3: Writer ──
-    with st.spinner("✍️  Writer is drafting the report…"):
-        research_combined = (
-            f"SEARCH RESULTS:\n{results['search']}\n\n"
-            f"DETAILED SCRAPED CONTENT:\n{results['reader']}"
-        )
-        results["writer"] = writer_chain.invoke({
-            "topic": topic_val,
-            "research": research_combined
-        })
+    elif step == "writer":
+        with st.spinner("✍️  Writer is drafting the report…"):
+            try:
+                research_combined = (
+                    f"SEARCH RESULTS:\n{results.get('search','')}\n\n"
+                    f"DETAILED SCRAPED CONTENT:\n{results.get('reader','')}"
+                )
+                results["writer"] = writer_chain.invoke({
+                    "topic": topic_val,
+                    "research": research_combined
+                })
+            except Exception as e:
+                _record_error("writer", e)
         st.session_state.results = dict(results)
+        st.session_state.errors = dict(errors)
+        if "writer" in errors:
+            # critic cannot review a failed report
+            _finish_run()
+            st.rerun()
+        else:
+            _advance_from("writer")
 
     # ── Step 4: Critic ──
-    with st.spinner("🧐  Critic is reviewing the report…"):
-        results["critic"] = critic_chain.invoke({
-            "report": results["writer"]
-        })
+    elif step == "critic":
+        with st.spinner("🧐  Critic is reviewing the report…"):
+            try:
+                results["critic"] = critic_chain.invoke({
+                    "report": results.get("writer", "")
+                })
+            except Exception as e:
+                _record_error("critic", e)
         st.session_state.results = dict(results)
+        st.session_state.errors = dict(errors)
+        _finish_run()
+        st.rerun()
 
-    st.session_state.running = False
-    st.session_state.done = True
-    st.rerun()
+    else:
+        _finish_run()
+        st.rerun()
 
 
 # ── Results display ───────────────────────────────────────────────────────────
-r = st.session_state.results
+r = st.session_state.results or {}
+errors = st.session_state.errors or {}
+
+if errors:
+    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-heading">Issues</div>', unsafe_allow_html=True)
+    for step_name, msg in errors.items():
+        st.error(f"**{step_name}** failed — {msg}")
 
 if r:
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
@@ -476,7 +561,7 @@ if r:
                         f'<div class="result-content">{r["reader"]}</div></div>', unsafe_allow_html=True)
 
     # Final report
-    if "writer" in r:
+    if "writer" in r and "writer" not in errors:
         st.markdown("""
         <div class="report-panel">
             <div class="panel-label orange">📝 Final Research Report</div>
@@ -493,7 +578,7 @@ if r:
         )
 
     # Critic feedback
-    if "critic" in r:
+    if "critic" in r and "critic" not in errors:
         st.markdown("""
         <div class="feedback-panel">
             <div class="panel-label green">🧐 Critic Feedback</div>
