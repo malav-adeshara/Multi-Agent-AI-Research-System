@@ -11,7 +11,7 @@ Repository structure
 - `requirements.txt` - Python dependencies for the project.
 
 Prerequisites
-- Python 3.10 or later (recommended).
+- Python 3.10 or later (3.12 recommended; `.venv` is tested on 3.12).
 - Git to clone the repo.
 
 Quickstart
@@ -50,18 +50,24 @@ python app.py
 ```
 
 Dependencies
-- See `requirements.txt` for the exact pinned packages. Current top-level entries:
+- See `requirements.txt` for exact pins matching the working environment:
 
 ```
-streamlit
-langchain
-langchain-groq
-tavily
-beautifulsoup4
-requests
-python-dotenv
-rich
+streamlit==1.57.0
+langchain==1.3.1
+langchain-core==1.4.0
+langchain-groq==1.1.2
+tavily-python==0.7.24
+beautifulsoup4==4.14.3
+requests==2.34.2
+python-dotenv==1.2.2
+rich==15.0.0
+httpx==0.28.1
 ```
+
+Required `.env` keys:
+- `GROQ_API_KEY` — LLM backend (ChatGroq)
+- `TAVILY_API_KEY` — web search tool
 
 Development notes
 - Keep secrets and API keys out of the repo; use `.env` or your environment.
