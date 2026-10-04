@@ -14,15 +14,22 @@ tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 @tool
 def web_search(query: str) -> str:
     """Search the web for recent & reliable information on a topic. Returns Titles, URLs, & Snippets."""
-    results = tavily.search(query=query, max_results=5)
-    
+    try:
+        results = tavily.search(query=query, max_results=5)
+    except Exception as e:
+        return f"WEB_SEARCH_FAILED: could not reach the search API. Error: {str(e)}"
+
+    hits = results.get("results") or []
+    if not hits:
+        return "WEB_SEARCH_EMPTY: no results found for this query."
+
     out = []
-    
-    for r in results['results']:
-        out.append(
-            f"Title: {r['title']}\nURL: {r['url']}\nSnippet: {r['content'][:300]}\n"
-        )
-        
+    for r in hits:
+        title = r.get("title") or "(no title)"
+        url = r.get("url") or ""
+        snippet = (r.get("content") or "")[:300]
+        out.append(f"Title: {title}\nURL: {url}\nSnippet: {snippet}\n")
+
     return "\n----\n".join(out)
 
 

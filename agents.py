@@ -28,6 +28,22 @@ def build_reader_agent():
         model = llm,
         tools = [scrape_url]
     )
+
+
+# Prompt used by pipeline + UI to force the reader agent to scrape a real URL
+def build_reader_prompt(topic: str, search_results: str) -> str:
+    return (
+        "You are the Reader Agent. Your job is to pick ONE most relevant URL from the "
+        "search results and scrape it using the scrape_url tool.\n\n"
+        "Rules:\n"
+        "1. You MUST call the scrape_url tool with a real URL taken from the Search Results below.\n"
+        "2. Prefer an official docs page, reputable news article, or primary source over aggregators.\n"
+        "3. Do not ask the user for more information. Do not refuse. Use the URLs already provided.\n"
+        "4. After scraping, summarize the deepest useful content you obtained.\n\n"
+        f"Topic: {topic}\n\n"
+        "Search Results:\n"
+        f"{search_results}\n"
+    )
     
 
 # writer chain
