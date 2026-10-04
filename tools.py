@@ -4,11 +4,10 @@ from bs4 import BeautifulSoup
 from tavily import TavilyClient
 import os
 from rich import print
-from dotenv import load_dotenv
 
-from runtime import call_with_retries, get_logger
+from runtime import call_with_retries, get_logger, load_runtime_env
 
-load_dotenv()
+load_runtime_env()
 
 tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 _logger = get_logger()

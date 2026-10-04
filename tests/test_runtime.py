@@ -1,4 +1,5 @@
 import logging
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -33,13 +34,51 @@ def test_require_env_keys_raises_with_helpful_message(monkeypatch):
     with pytest.raises(MissingEnvironmentError) as exc:
         require_env_keys()
     assert "GROQ_API_KEY" in str(exc.value)
-    assert ".env" in str(exc.value)
+    assert "Secrets" in str(exc.value) or ".env" in str(exc.value)
 
 
 def test_require_env_keys_passes_when_set(monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
     monkeypatch.setenv("TAVILY_API_KEY", "tvly_test")
     require_env_keys()  # should not raise
+
+
+def test_inject_streamlit_secrets_fills_missing_env(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+
+    fake_st = MagicMock()
+    fake_st.secrets = {"GROQ_API_KEY": "gsk_from_secrets", "TAVILY_API_KEY": "tvly_from_secrets"}
+
+    with patch.dict("sys.modules", {"streamlit": fake_st}):
+        runtime._inject_streamlit_secrets()
+
+    assert os.environ.get("GROQ_API_KEY") == "gsk_from_secrets"
+    assert os.environ.get("TAVILY_API_KEY") == "tvly_from_secrets"
+
+
+def test_inject_streamlit_secrets_does_not_override_existing(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "already_set")
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+
+    fake_st = MagicMock()
+    fake_st.secrets = {"GROQ_API_KEY": "from_secrets", "TAVILY_API_KEY": "tvly_new"}
+
+    with patch.dict("sys.modules", {"streamlit": fake_st}):
+        runtime._inject_streamlit_secrets()
+
+    assert os.environ.get("GROQ_API_KEY") == "already_set"
+    assert os.environ.get("TAVILY_API_KEY") == "tvly_new"
+
+
+def test_inject_streamlit_secrets_safe_without_streamlit(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly_test")
+    # Ensure import failure path does not raise
+    with patch.dict("sys.modules", {"streamlit": None}):
+        runtime._inject_streamlit_secrets()
+    # still missing GROQ only
+    assert runtime.missing_env_keys() == ["GROQ_API_KEY"]
 
 
 @pytest.mark.parametrize(

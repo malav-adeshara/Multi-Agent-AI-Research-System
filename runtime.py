@@ -22,6 +22,39 @@ class MissingEnvironmentError(RuntimeError):
     """Raised when required API keys are missing or empty."""
 
 
+def _inject_streamlit_secrets() -> None:
+    """Copy Streamlit Cloud / .streamlit/secrets.toml keys into os.environ."""
+    try:
+        import streamlit as st
+    except Exception:
+        return
+    try:
+        secrets = getattr(st, "secrets", None)
+        if secrets is None:
+            return
+        for key in REQUIRED_ENV_KEYS:
+            if os.getenv(key):
+                continue
+            try:
+                val = secrets[key]
+            except Exception:
+                continue
+            if val is not None and str(val).strip():
+                os.environ[key] = str(val).strip()
+    except Exception:
+        return
+
+
+def load_runtime_env() -> None:
+    """Load .env then Streamlit secrets into the process environment."""
+    load_dotenv()
+    _inject_streamlit_secrets()
+
+
+# Ensure keys are available as early as possible for local + cloud runs.
+load_runtime_env()
+
+
 def setup_logging(level: int = logging.INFO) -> logging.Logger:
     """Configure a single project logger (idempotent)."""
     global _logging_configured
@@ -54,12 +87,15 @@ def missing_env_keys(keys: Iterable[str] = REQUIRED_ENV_KEYS) -> list[str]:
 
 def require_env_keys(keys: Iterable[str] = REQUIRED_ENV_KEYS) -> None:
     """Raise MissingEnvironmentError if any required key is unset/blank."""
+    # Re-check Streamlit secrets (covers cloud runs where .env is absent).
+    _inject_streamlit_secrets()
     missing = missing_env_keys(keys)
     if missing:
         raise MissingEnvironmentError(
             "Missing required environment variable(s): "
             + ", ".join(missing)
-            + ". Set them in your shell or in a .env file in the project root."
+            + ". Set them in .env (local) or Streamlit Cloud App settings → Secrets "
+            "(keys: GROQ_API_KEY, TAVILY_API_KEY)."
         )
 
 

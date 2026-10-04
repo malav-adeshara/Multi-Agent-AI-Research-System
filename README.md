@@ -57,6 +57,8 @@ streamlit run app.py
 python pipeline.py
 ```
 
+Free public deployment (Streamlit Community Cloud): see [`DEPLOY_STREAMLIT_CLOUD.md`](DEPLOY_STREAMLIT_CLOUD.md).
+
 Note: the CLI reconfigures stdout to UTF-8 so Windows consoles do not crash on Unicode research text.
 
 Dependencies
