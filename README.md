@@ -74,10 +74,21 @@ Development notes
 - Use the provided `requirements.txt` to reproduce the environment. Freeze updates with `pip freeze > requirements.txt` when you intend to record changes.
 
 Testing & linting
-- This repository doesn't include tests by default. Consider adding `pytest` and running `pytest` for test discovery.
+- Unit/integration tests live in `tests/` (mocked Tavily/Groq — no network needed):
 
-Contributing
-- Fork the repo, create a feature branch, and open a pull request. Keep changes focused and include tests for new behavior.
+```bash
+.venv\Scripts\activate   # Windows
+pytest
+```
+
+- Optional live smoke (real APIs; needs `.env` keys + network):
+
+```bash
+pytest --live
+```
+
+- `pytest.ini` sets test discovery to `tests/`. Live tests are skipped unless you pass `--live`.
+- Contributing: keep changes focused and include tests for new behavior.
 
 License
 - No license file present. Add a `LICENSE` file if you want to open-source this project and make the licensing explicit.
